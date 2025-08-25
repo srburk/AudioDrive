@@ -22,4 +22,10 @@ WantedBy=multi-user.target
 
 ## My notes:
 
-hosting on tailscale:
+hosting on tailscale funnel, security through obscurity
+
+## TODO
+
+* Authentification
+* Manage uploads on a dashboard
+* Edit upload info (title, etc.)
