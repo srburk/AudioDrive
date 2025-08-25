@@ -16,6 +16,9 @@ clean:
 
 .PHONY: install
 install: build
-	echo "Installing $(BIN_NAME) ..."; \
-	sudo install -m 755 $(BIN_NAME) /usr/local/bin/$(BIN_NAME); \
-	echo "Done."
+	@echo "Creating data directory if it doesn't exist..."
+	@sudo mkdir -p $(DATA_DIR)
+	@sudo chown $(USER):$(USER) $(DATA_DIR)
+	@echo "Installing binary..."
+	@sudo install -m 755 $(BUILD_DIR)/$(BIN_NAME) $(BIN_INSTALL_PATH)
+	@echo "Install complete."
