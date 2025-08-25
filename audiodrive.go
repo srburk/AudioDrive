@@ -61,6 +61,20 @@ type Enclosure struct {
     Length string `xml:"length,attr"`
 }
 
+var audioExtensions = map[string]struct{}{
+	".mp3": {},
+	".wav": {},
+	".flac": {},
+	".aac": {},
+	".ogg": {},
+}
+
+func isAudioFile(filename string) bool {
+	ext := filepath.Ext(filename)
+	_, exists := audioExtensions[ext]
+	return exists
+}
+
 func rssHandler(folder string) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         files, err := os.ReadDir(folder)
@@ -80,7 +94,7 @@ func rssHandler(folder string) http.HandlerFunc {
         baseURL := fmt.Sprintf("https://%s/", r.Host)
 
         for _, f := range files {
-            if f.IsDir() || filepath.Ext(f.Name()) != ".mp3" {
+            if f.IsDir() || isAudioFile(f.Name()) {
                 continue
             }
 
@@ -111,7 +125,7 @@ func rssHandler(folder string) http.HandlerFunc {
             Channel: Channel{
                 Title:       "AudioDrive",
                 Link:        baseURL,
-                Description: "A folder full of mp3s",
+                Description: "A folder full of MP3s",
                 Language:    "en-us",
                 Author:      "AudioDrive Folder",
                 Explicit:    "false",

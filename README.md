@@ -3,13 +3,15 @@
 
 ## Service File
 
+`/etc/systemd/system/audiodrive.service`
 ```
 [Unit]
 Description=Podcast Server
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/audiodrive-server --folder ~/audio
+ExecStart=/usr/local/bin/audiodrive --folder ~/audio
+WorkingDirectory=/var/lib/audiodrive
 Restart=always
 
 [Install]
