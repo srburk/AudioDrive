@@ -1,6 +1,8 @@
 
 # AudioDrive
 
+![AudioDrive Icon](image.png)
+
 ## Service File
 
 `/etc/systemd/system/audiodrive.service`

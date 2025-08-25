@@ -8,7 +8,7 @@ all: build
 .PHONY: build
 build:
 	mkdir -p $(BUILD_DIR)
-	go build -o ./$(BUILD_DIR)/$(BIN_NAME) ./audiodrive.go
+	go build -o ./$(BUILD_DIR)/$(BIN_NAME) ./main.go
 
 .PHONY: clean
 clean:
