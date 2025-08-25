@@ -13,7 +13,7 @@ import (
     "flag"
 )
 
-const PORT int = 8080
+const DEFAULT_PORT int = 8080
 const DEFAULT_FOLDER string = "./audio"
 const DEFAULT_IMAGE string = "./image.png"
 
@@ -137,7 +137,13 @@ func imageHandler(imagePath string) http.HandlerFunc {
     }
 }
 
+var port int
+
 func main() {
+
+    flag.IntVar(&port, "p", DEFAULT_PORT, "port")
+    flag.IntVar(&port, "port", DEFAULT_PORT, "port")
+
     folderPtr := flag.String("folder", DEFAULT_FOLDER, "directory for files")
     imagePtr := flag.String("image", DEFAULT_IMAGE, "Path to image file for podcast clients")
     flag.Parse()
@@ -146,8 +152,8 @@ func main() {
     http.HandleFunc("/image.png", imageHandler(*imagePtr))
     http.Handle("/", http.FileServer(http.Dir(*folderPtr)))
     
-    fmt.Printf("Listening on http://127.0.0.1:%d\n", PORT)
-    addr := fmt.Sprintf(":%d", PORT)
+    fmt.Printf("Listening on http://127.0.0.1:%d\n", port)
+    addr := fmt.Sprintf(":%d", port)
     log.Fatal(http.ListenAndServe(addr, nil))
     
 }
