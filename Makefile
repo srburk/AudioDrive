@@ -1,6 +1,7 @@
 BUILD_DIR = bin
 BIN_NAME = audiodrive
 DATA_DIR=/var/lib/$(BIN_NAME)
+INSTALL_DIR =/usr/local/bin
 
 .PHONY: all
 all: build
@@ -20,5 +21,14 @@ install: build
 	@sudo mkdir -p $(DATA_DIR)
 	@sudo chown $(USER):$(USER) $(DATA_DIR)
 	@echo "Installing binary..."
-	@sudo install -m 755 $(BUILD_DIR)/$(BIN_NAME) $(BIN_INSTALL_PATH)
+	@sudo install -m 755 $(BUILD_DIR)/$(BIN_NAME) $(INSTALL_DIR)/$(BIN_NAME)
 	@echo "Install complete."
+	
+.PHONY: uninstall
+uninstall:
+    @echo -n "Are you sure? [Y/n] " && read ans && [ $${ans:-Y} != Y ] && echo "Aborted" && exit 1
+    @echo "Removing data directory..."
+    @sudo rm -rf $(DATA_DIR)
+    @echo "Removing binary..."
+    @sudo rm $(INSTALL_DIR)/$(BIN_NAME)
+    @echo "Uninstalled."
