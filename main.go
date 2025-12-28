@@ -241,7 +241,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
     // limit body size
     r.Body = http.MaxBytesReader(w, r.Body, MAX_UPLOAD_SIZE)
-    if err := r.ParseMultipartForm(MAX_UPLOAD_SIZE); err != nil {
+    // ParseMultipartForm maxMemory limit:
+    // If the file is larger than this limit (10MB), it will be stored in a temp file on disk.
+    // If we pass MAX_UPLOAD_SIZE, it tries to read the whole file into RAM.
+    if err := r.ParseMultipartForm(10 << 20); err != nil {
         http.Error(w, "File too large or invalid", http.StatusBadRequest)
         return
     }
