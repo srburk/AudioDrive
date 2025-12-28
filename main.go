@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -201,44 +202,72 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, MAX_UPLOAD_SIZE)
-	// Use 10MB limit for RAM buffering
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		http.Error(w, "File too large or invalid", http.StatusBadRequest)
-		return
-	}
-
-	file, header, err := r.FormFile("file")
+	mr, err := r.MultipartReader()
 	if err != nil {
-		http.Error(w, "Invalid file", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	filename := filepath.Base(header.Filename)
-	dstPath := filepath.Join(folder, filename)
-
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		http.Error(w, "Unable to save file", http.StatusInternalServerError)
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+		http.Error(w, "Invalid multipart data", http.StatusBadRequest)
 		return
 	}
 
-	title := r.FormValue("title")
-	if title == "" {
-		title = filename
+	var filename, title, desc string
+
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			http.Error(w, "Error reading part", http.StatusInternalServerError)
+			return
+		}
+
+		name := part.FormName()
+		if name == "file" {
+            filename = filepath.Base(part.FileName())
+            if filename == "" {
+                 continue
+            }
+            dstPath := filepath.Join(folder, filename)
+
+            dst, err := os.Create(dstPath)
+            if err != nil {
+                http.Error(w, "Unable to save file", http.StatusInternalServerError)
+                return
+            }
+            // Stream directly to file
+            if _, err := io.Copy(dst, part); err != nil {
+                dst.Close()
+                os.Remove(dstPath)
+                http.Error(w, "Failed to write file", http.StatusInternalServerError)
+                return
+            }
+            dst.Close()
+		} else if name == "title" {
+            buf := new(strings.Builder)
+            io.Copy(buf, part)
+            title = buf.String()
+		} else if name == "description" {
+            buf := new(strings.Builder)
+            io.Copy(buf, part)
+            desc = buf.String()
+		}
 	}
-	desc := r.FormValue("description")
+
+    if filename == "" {
+         http.Error(w, "No file uploaded", http.StatusBadRequest)
+         return
+    }
+
+    if title == "" {
+        title = filename
+    }
 
 	store.SetMetadata(filename, storage.Metadata{
 		Title: title,
 		Description: desc,
 	})
+
+    // Force cleanup
+    runtime.GC()
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Upload successful"))
