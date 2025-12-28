@@ -8,6 +8,7 @@ import (
     "path/filepath"
     "sort"
     "time"
+    "audiodrive/storage"
 )
 
 type RSS struct {
@@ -68,7 +69,7 @@ func isAudioFile(filename string) bool {
 	return exists
 }
 
-func GenerateRSS(folder string, baseURL string) (*RSS, error) {
+func GenerateRSS(folder string, baseURL string, store storage.Store) (*RSS, error) {
     files, err := os.ReadDir(folder)
     if err != nil {
         return nil, fmt.Errorf("Unable to read folder: %w", err)
@@ -92,11 +93,25 @@ func GenerateRSS(folder string, baseURL string) (*RSS, error) {
         size := info.Size()
         guid := fmt.Sprintf("%s-%d", f.Name(), size)
 
+        title := f.Name()
+        description := f.Name()
+
+        if store != nil {
+            if meta, err := store.GetMetadata(f.Name()); err == nil && meta != nil {
+                if meta.Title != "" {
+                    title = meta.Title
+                }
+                if meta.Description != "" {
+                    description = meta.Description
+                }
+            }
+        }
+
         encodedName := url.PathEscape(f.Name())
 
         items = append(items, Item{
-            Title:       f.Name(),
-            Description: f.Name(),
+            Title:       title,
+            Description: description,
             PubDate:     pub,
             GUID:        guid,
             Enclosure: Enclosure{
