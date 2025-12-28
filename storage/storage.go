@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,50 +16,62 @@ type Metadata struct {
 	Description string `json:"description"`
 }
 
-// Store defines the interface for metadata storage.
-type Store interface {
-	// GetMetadata returns the metadata for a given filename.
-	// If no metadata exists, it returns nil and no error.
-	GetMetadata(filename string) (*Metadata, error)
-
-	// SetMetadata saves the metadata for a given filename.
-	SetMetadata(filename string, meta Metadata) error
-
-	// DeleteMetadata removes the metadata for a given filename.
-	DeleteMetadata(filename string) error
+// User represents a user with access to the feed.
+type User struct {
+	Name  string `json:"name"`
+	Token string `json:"token"`
 }
 
-// JSONStore implements Store using a single JSON file.
+// Store defines the interface for metadata storage.
+type Store interface {
+	// Metadata Ops
+	GetMetadata(filename string) (*Metadata, error)
+	SetMetadata(filename string, meta Metadata) error
+	DeleteMetadata(filename string) error
+
+	// Token Ops
+	AddUser(name string) (*User, error)
+	RemoveUser(token string) error
+	ListUsers() ([]User, error)
+	ValidateToken(token string) bool
+}
+
+// JSONStore implements Store using JSON files.
 type JSONStore struct {
-	mu       sync.RWMutex
-	filePath string
-	data     map[string]Metadata
+	mu           sync.RWMutex
+	metaFilePath string
+	userFilePath string
+	metadata     map[string]Metadata
+	users        map[string]User // Keyed by Token
 }
 
 // NewJSONStore creates a new JSONStore.
-// It loads existing data from the file if it exists.
 func NewJSONStore(folder string) (*JSONStore, error) {
-	filePath := filepath.Join(folder, "metadata.json")
 	store := &JSONStore{
-		filePath: filePath,
-		data:     make(map[string]Metadata),
+		metaFilePath: filepath.Join(folder, "metadata.json"),
+		userFilePath: filepath.Join(folder, "users.json"),
+		metadata:     make(map[string]Metadata),
+		users:        make(map[string]User),
 	}
 
-	if err := store.load(); err != nil {
+	if err := store.loadMetadata(); err != nil {
+		return nil, err
+	}
+	if err := store.loadUsers(); err != nil {
 		return nil, err
 	}
 
 	return store, nil
 }
 
-// load reads the JSON file into memory.
-func (s *JSONStore) load() error {
+// --- Metadata Logic ---
+
+func (s *JSONStore) loadMetadata() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	file, err := os.Open(s.filePath)
+	file, err := os.Open(s.metaFilePath)
 	if os.IsNotExist(err) {
-		// File doesn't exist yet, that's fine.
 		return nil
 	}
 	if err != nil {
@@ -65,67 +79,133 @@ func (s *JSONStore) load() error {
 	}
 	defer file.Close()
 
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&s.data); err != nil {
-		// If the file is empty or invalid, we might want to start fresh or return error.
-		// For now, let's return error to be safe, unless it's EOF.
+	if err := json.NewDecoder(file).Decode(&s.metadata); err != nil {
 		if err.Error() == "EOF" {
 			return nil
 		}
-		return fmt.Errorf("failed to decode metadata file: %w", err)
+		return err
 	}
-
 	return nil
 }
 
-// save writes the memory cache to the JSON file.
-func (s *JSONStore) save() error {
+func (s *JSONStore) saveMetadata() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	file, err := os.Create(s.filePath)
+	file, err := os.Create(s.metaFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to create metadata file: %w", err)
+		return err
 	}
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(s.data); err != nil {
-		return fmt.Errorf("failed to encode metadata: %w", err)
-	}
-
-	return nil
+	return encoder.Encode(s.metadata)
 }
 
-// GetMetadata retrieves metadata for a file.
 func (s *JSONStore) GetMetadata(filename string) (*Metadata, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	meta, ok := s.data[filename]
+	meta, ok := s.metadata[filename]
 	if !ok {
 		return nil, nil
 	}
 	return &meta, nil
 }
 
-// SetMetadata saves metadata for a file.
 func (s *JSONStore) SetMetadata(filename string, meta Metadata) error {
-	// Update memory
 	s.mu.Lock()
-	s.data[filename] = meta
+	s.metadata[filename] = meta
 	s.mu.Unlock()
-
-	// Persist to disk
-	return s.save()
+	return s.saveMetadata()
 }
 
-// DeleteMetadata removes metadata for a file.
 func (s *JSONStore) DeleteMetadata(filename string) error {
 	s.mu.Lock()
-	delete(s.data, filename)
+	delete(s.metadata, filename)
+	s.mu.Unlock()
+	return s.saveMetadata()
+}
+
+// --- User/Token Logic ---
+
+func (s *JSONStore) loadUsers() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	file, err := os.Open(s.userFilePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to open users file: %w", err)
+	}
+	defer file.Close()
+
+	if err := json.NewDecoder(file).Decode(&s.users); err != nil {
+		if err.Error() == "EOF" {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *JSONStore) saveUsers() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	file, err := os.Create(s.userFilePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(s.users)
+}
+
+func generateToken() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (s *JSONStore) AddUser(name string) (*User, error) {
+	token := generateToken()
+	user := User{Name: name, Token: token}
+
+	s.mu.Lock()
+	s.users[token] = user
 	s.mu.Unlock()
 
-	return s.save()
+	if err := s.saveUsers(); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (s *JSONStore) RemoveUser(token string) error {
+	s.mu.Lock()
+	delete(s.users, token)
+	s.mu.Unlock()
+	return s.saveUsers()
+}
+
+func (s *JSONStore) ListUsers() ([]User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var list []User
+	for _, u := range s.users {
+		list = append(list, u)
+	}
+	return list, nil
+}
+
+func (s *JSONStore) ValidateToken(token string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, exists := s.users[token]
+	return exists
 }

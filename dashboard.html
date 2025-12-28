@@ -49,6 +49,17 @@
         </div>
     </div>
 
+    <div class="card">
+        <h2>Manage Users</h2>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <input type="text" id="newUserName" placeholder="User Name" style="margin: 0;">
+            <button class="btn-primary" onclick="addUser()">Add User</button>
+        </div>
+        <div id="userList" class="file-list">
+            <p>Loading users...</p>
+        </div>
+    </div>
+
     <!-- Edit Modal -->
     <div id="editModal" class="modal">
         <div class="modal-content">
@@ -66,7 +77,10 @@
     </div>
 
     <script>
-        document.addEventListener("DOMContentLoaded", loadFiles);
+        document.addEventListener("DOMContentLoaded", () => {
+            loadFiles();
+            loadUsers();
+        });
 
         function loadFiles() {
             fetch('/api/metadata')
@@ -200,6 +214,64 @@
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
+        }
+
+        // --- User Management ---
+
+        function loadUsers() {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(users => {
+                    const list = document.getElementById('userList');
+                    list.innerHTML = '';
+                    if (!users || users.length === 0) {
+                        list.innerHTML = '<p>No users found.</p>';
+                        return;
+                    }
+                    users.forEach(u => {
+                        const item = document.createElement('div');
+                        item.className = 'file-item';
+                        item.innerHTML = `
+                            <div class="file-info">
+                                <h3>${escapeHtml(u.name)}</h3>
+                                <p>Token: <code style="background: #eee; padding: 2px 4px; border-radius: 3px;">${escapeHtml(u.token)}</code></p>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn-danger" onclick="deleteUser('${escapeHtml(u.token)}')">Delete</button>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                })
+                .catch(err => console.error(err));
+        }
+
+        function addUser() {
+            const nameInput = document.getElementById('newUserName');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            }).then(res => {
+                if (res.ok) {
+                    nameInput.value = '';
+                    loadUsers();
+                } else {
+                    alert('Failed to add user');
+                }
+            });
+        }
+
+        function deleteUser(token) {
+            if (!confirm('Delete user?')) return;
+            fetch('/api/users?token=' + encodeURIComponent(token), { method: 'DELETE' })
+                .then(res => {
+                    if (res.ok) loadUsers();
+                    else alert('Failed to delete user');
+                });
         }
     </script>
 </body>
