@@ -381,6 +381,9 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Also remove metadata
+    store.DeleteMetadata(filename)
+
     w.WriteHeader(http.StatusOK)
 }
 

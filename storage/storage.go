@@ -22,6 +22,9 @@ type Store interface {
 
 	// SetMetadata saves the metadata for a given filename.
 	SetMetadata(filename string, meta Metadata) error
+
+	// DeleteMetadata removes the metadata for a given filename.
+	DeleteMetadata(filename string) error
 }
 
 // JSONStore implements Store using a single JSON file.
@@ -115,5 +118,14 @@ func (s *JSONStore) SetMetadata(filename string, meta Metadata) error {
 	s.mu.Unlock()
 
 	// Persist to disk
+	return s.save()
+}
+
+// DeleteMetadata removes metadata for a file.
+func (s *JSONStore) DeleteMetadata(filename string) error {
+	s.mu.Lock()
+	delete(s.data, filename)
+	s.mu.Unlock()
+
 	return s.save()
 }

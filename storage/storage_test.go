@@ -56,4 +56,27 @@ func TestJSONStore(t *testing.T) {
 	if meta2.Title != "My Title" {
 		t.Errorf("Expected persisted title 'My Title', got '%s'", meta2.Title)
 	}
+
+	// Test Delete
+	if err := store2.DeleteMetadata("foo.mp3"); err != nil {
+		t.Fatalf("DeleteMetadata failed: %v", err)
+	}
+
+	meta3, err := store2.GetMetadata("foo.mp3")
+	if err != nil {
+		t.Errorf("GetMetadata returned error after delete: %v", err)
+	}
+	if meta3 != nil {
+		t.Errorf("Metadata should be nil after delete")
+	}
+
+	// Verify persistence of deletion
+	store3, err := NewJSONStore(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to reload store 3: %v", err)
+	}
+	meta4, err := store3.GetMetadata("foo.mp3")
+	if meta4 != nil {
+		t.Errorf("Metadata should be nil after delete and reload")
+	}
 }
