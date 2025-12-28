@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudioDrive Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f4f4f9; color: #333; }
+        h1 { border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .file-list { list-style: none; padding: 0; }
+        .file-item { border-bottom: 1px solid #eee; padding: 15px 0; display: flex; justify-content: space-between; align-items: start; }
+        .file-info h3 { margin: 0 0 5px 0; font-size: 1.1em; }
+        .file-info p { margin: 0; color: #666; font-size: 0.9em; }
+        .file-actions { display: flex; gap: 10px; }
+        button { cursor: pointer; padding: 8px 12px; border: none; border-radius: 4px; font-size: 0.9em; transition: background 0.2s; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #a71d2a; }
+        .btn-secondary { background: #6c757d; color: white; }
+        input[type="text"], textarea { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;}
+        #upload-progress { width: 100%; height: 20px; display: none; margin-top: 10px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; }
+        .error { color: red; display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>AudioDrive Dashboard</h1>
+
+    <div class="card">
+        <h2>Upload Audio</h2>
+        <form id="uploadForm">
+            <input type="file" id="fileInput" name="file" accept=".mp3,.m4a,.aac,.wav,.ogg" required>
+            <input type="text" id="uploadTitle" placeholder="Title (optional)">
+            <textarea id="uploadDesc" placeholder="Description (optional)" rows="2"></textarea>
+            <button type="submit" class="btn-primary">Upload</button>
+        </form>
+        <progress id="upload-progress" value="0" max="100"></progress>
+        <div id="upload-error" class="error"></div>
+    </div>
+
+    <div class="card">
+        <h2>Library</h2>
+        <div id="fileList" class="file-list">
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Manage Users</h2>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <input type="text" id="newUserName" placeholder="User Name" style="margin: 0;">
+            <button class="btn-primary" onclick="addUser()">Add User</button>
+        </div>
+        <div id="userList" class="file-list">
+            <p>Loading users...</p>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <h3>Edit Metadata</h3>
+            <input type="hidden" id="editFilename">
+            <label>Title</label>
+            <input type="text" id="editTitle">
+            <label>Description</label>
+            <textarea id="editDesc" rows="4"></textarea>
+            <div style="text-align: right; margin-top: 10px;">
+                <button onclick="closeModal()" class="btn-secondary">Cancel</button>
+                <button onclick="saveMetadata()" class="btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            loadFiles();
+            loadUsers();
+        });
+
+        function loadFiles() {
+            fetch('/api/metadata')
+                .then(res => res.json())
+                .then(files => {
+                    const list = document.getElementById('fileList');
+                    list.innerHTML = '';
+                    if (files.length === 0) {
+                        list.innerHTML = '<p>No files found.</p>';
+                        return;
+                    }
+                    files.forEach(f => {
+                        const item = document.createElement('div');
+                        item.className = 'file-item';
+                        item.innerHTML = `
+                            <div class="file-info">
+                                <h3>${escapeHtml(f.title)}</h3>
+                                <p>${escapeHtml(f.filename)} (${formatSize(f.size)})</p>
+                                <p>${escapeHtml(f.description || '')}</p>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn-secondary" onclick="openEdit('${escapeHtml(f.filename)}', '${escapeHtml(f.title)}', '${escapeHtml(f.description)}')">Edit</button>
+                                <button class="btn-danger" onclick="deleteFile('${escapeHtml(f.filename)}')">Delete</button>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                })
+                .catch(err => console.error(err));
+        }
+
+        document.getElementById('uploadForm').onsubmit = function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('title', document.getElementById('uploadTitle').value);
+            formData.append('description', document.getElementById('uploadDesc').value);
+
+            const xhr = new XMLHttpRequest();
+            const progress = document.getElementById('upload-progress');
+            const errorDiv = document.getElementById('upload-error');
+
+            progress.style.display = 'block';
+            errorDiv.style.display = 'none';
+
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    progress.value = (e.loaded / e.total) * 100;
+                }
+            };
+
+            xhr.onload = function() {
+                progress.style.display = 'none';
+                if (xhr.status === 200) {
+                    document.getElementById('uploadForm').reset();
+                    loadFiles();
+                } else {
+                    errorDiv.innerText = "Upload failed: " + xhr.responseText;
+                    errorDiv.style.display = 'block';
+                }
+            };
+
+            xhr.onerror = function() {
+                progress.style.display = 'none';
+                errorDiv.innerText = "Network error";
+                errorDiv.style.display = 'block';
+            };
+
+            xhr.open('POST', '/api/upload', true);
+            xhr.send(formData);
+        };
+
+        function deleteFile(filename) {
+            if (!confirm('Are you sure you want to delete ' + filename + '?')) return;
+            fetch('/api/delete?file=' + encodeURIComponent(filename), { method: 'DELETE' })
+                .then(res => {
+                    if (res.ok) loadFiles();
+                    else alert('Failed to delete');
+                });
+        }
+
+        function openEdit(filename, title, desc) {
+            document.getElementById('editFilename').value = filename;
+            document.getElementById('editTitle').value = title;
+            document.getElementById('editDesc').value = desc;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        function saveMetadata() {
+            const data = {
+                filename: document.getElementById('editFilename').value,
+                title: document.getElementById('editTitle').value,
+                description: document.getElementById('editDesc').value
+            };
+
+            fetch('/api/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(res => {
+                if (res.ok) {
+                    closeModal();
+                    loadFiles();
+                } else {
+                    alert('Failed to save metadata');
+                }
+            });
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // --- User Management ---
+
+        function loadUsers() {
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(users => {
+                    const list = document.getElementById('userList');
+                    list.innerHTML = '';
+                    if (!users || users.length === 0) {
+                        list.innerHTML = '<p>No users found.</p>';
+                        return;
+                    }
+                    users.forEach(u => {
+                        const item = document.createElement('div');
+                        item.className = 'file-item';
+                        item.innerHTML = `
+                            <div class="file-info">
+                                <h3>${escapeHtml(u.name)}</h3>
+                                <p>Token: <code style="background: #eee; padding: 2px 4px; border-radius: 3px;">${escapeHtml(u.token)}</code></p>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn-danger" onclick="deleteUser('${escapeHtml(u.token)}')">Delete</button>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                })
+                .catch(err => console.error(err));
+        }
+
+        function addUser() {
+            const nameInput = document.getElementById('newUserName');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            }).then(res => {
+                if (res.ok) {
+                    nameInput.value = '';
+                    loadUsers();
+                } else {
+                    alert('Failed to add user');
+                }
+            });
+        }
+
+        function deleteUser(token) {
+            if (!confirm('Delete user?')) return;
+            fetch('/api/users?token=' + encodeURIComponent(token), { method: 'DELETE' })
+                .then(res => {
+                    if (res.ok) loadUsers();
+                    else alert('Failed to delete user');
+                });
+        }
+    </script>
+</body>
+</html>
