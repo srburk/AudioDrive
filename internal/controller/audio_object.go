@@ -9,20 +9,20 @@ import (
 	"strconv"
 )
 
-type ObjectController struct {
-	repo *repo.ObjectRepo
+type AudioObjectController struct {
+	repo *repo.AudioObjectRepo
 }
 
-func NewObjectController(repo *repo.ObjectRepo) *ObjectController {
-	return &ObjectController{repo: repo}
+func NewAudioObjectController(repo *repo.AudioObjectRepo) *AudioObjectController {
+	return &AudioObjectController{repo: repo}
 }
 
-func (c ObjectController) RegisterRoutes(mux *http.ServeMux) {
+func (c AudioObjectController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/objects/{id}", c.Get)
 	mux.HandleFunc("POST /v1/api/objects", c.Create)
 }
 
-func (c *ObjectController) Get(w http.ResponseWriter, r *http.Request) {
+func (c *AudioObjectController) Get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -37,8 +37,8 @@ func (c *ObjectController) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(object)
 }
 
-func (c *ObjectController) Create(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateObjectRequest
+func (c *AudioObjectController) Create(w http.ResponseWriter, r *http.Request) {
+	var req models.CreateAudioObjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode("invalid JSON")

@@ -2,7 +2,7 @@ package models
 
 import "errors"
 
-type Object struct {
+type AudioObject struct {
 	Id              int64
 	UserId          int64
 	Name            string
@@ -10,14 +10,14 @@ type Object struct {
 	DurationSeconds int
 }
 
-type CreateObjectRequest struct {
+type CreateAudioObjectRequest struct {
 	UserId          int64  `json:"user_id"`
 	Name            string `json:"name"`
 	URL             string `json:"url"`
 	DurationSeconds int    `json:"duration_seconds"`
 }
 
-func (req CreateObjectRequest) ValidateRequest() error {
+func (req CreateAudioObjectRequest) ValidateRequest() error {
 	if req.Name == "" {
 		return errors.New("email is required")
 	}

@@ -19,11 +19,11 @@ func main() {
 	database.RunMigrations(db)
 
 	userRepo := repo.NewUserRepo(db)
-	objectRepo := repo.NewObjectRepo(db)
+	objectRepo := repo.NewAudioObjectRepo(db)
 
 	r := router.NewHandler(
 		controller.NewUserController(userRepo),
-		controller.NewObjectController(objectRepo),
+		controller.NewAudioObjectController(objectRepo),
 	)
 
 	log.Println("Server listening on :8080")

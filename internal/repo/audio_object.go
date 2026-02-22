@@ -6,22 +6,22 @@ import (
 	"database/sql"
 )
 
-type ObjectRepo struct {
+type AudioObjectRepo struct {
 	db *sql.DB
 }
 
-func NewObjectRepo(db *sql.DB) *ObjectRepo {
-	return &ObjectRepo{db: db}
+func NewAudioObjectRepo(db *sql.DB) *AudioObjectRepo {
+	return &AudioObjectRepo{db: db}
 }
 
-func (r *ObjectRepo) Create(ctx context.Context, req models.CreateObjectRequest) (*models.Object, error) {
+func (r *AudioObjectRepo) Create(ctx context.Context, req models.CreateAudioObjectRequest) (*models.AudioObject, error) {
 	row := r.db.QueryRowContext(ctx,
 		`INSERT INTO objects (user_id, name, url, duration_seconds)
          VALUES ($1, $2, $3, $4)
          RETURNING id, user_id, name, url, duration_seconds`,
 		req.UserId, req.Name, req.URL, req.DurationSeconds,
 	)
-	var object models.Object
+	var object models.AudioObject
 	if err := row.Scan(&object.Id, &object.UserId, &object.Name, &object.URL, &object.DurationSeconds); err != nil {
 		return nil, err
 	}
@@ -29,8 +29,8 @@ func (r *ObjectRepo) Create(ctx context.Context, req models.CreateObjectRequest)
 	return &object, nil
 }
 
-func (r *ObjectRepo) GetById(ctx context.Context, id int64) (*models.Object, error) {
-	var object models.Object
+func (r *AudioObjectRepo) GetById(ctx context.Context, id int64) (*models.AudioObject, error) {
+	var object models.AudioObject
 	err := r.db.QueryRowContext(ctx,
 		`SELECT * FROM objects WHERE id = $1`,
 		id,
