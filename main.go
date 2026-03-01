@@ -1,33 +1,45 @@
 package main
 
 import (
-	"audiodrive/internal/controller"
-	"audiodrive/internal/database"
-	"audiodrive/internal/repo"
-	"audiodrive/internal/router"
+	"database/sql"
 	"log"
-	"net/http"
+	"os"
+
+	"audiodrive/internal/server"
+	"audiodrive/internal/store"
+
+	_ "github.com/lib/pq"
 )
 
 func main() {
-
-	db, err := database.SetupPostgres()
-	if err != nil {
-		log.Fatalf("Failed to setup postgres: %s", err.Error())
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Fatalf("DATABASE_URL environment variable is required")
 	}
 
-	database.RunMigrations(db)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
-	userRepo := repo.NewUserRepo(db)
-	objectRepo := repo.NewAudioObjectRepo(db)
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
 
-	r := router.NewHandler(
-		controller.NewUserController(userRepo),
-		controller.NewAudioObjectController(objectRepo),
-	)
+	if err := db.Ping(); err != nil {
+		log.Fatalf("db.Ping: %v", err)
+	}
 
-	log.Println("Server listening on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
-		log.Fatal(err)
+	s, err := store.NewPostgres(db)
+	if err != nil {
+		log.Fatalf("store.NewPostgres: %v", err)
+	}
+
+	srv := server.New(":"+port, s)
+	log.Printf("listening on :%s", port)
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("ListenAndServe: %v", err)
 	}
 }
