@@ -37,7 +37,9 @@ func main() {
 		log.Fatalf("store.NewPostgres: %v", err)
 	}
 
-	srv := server.New(":"+port, s)
+	audioStore := store.NewDiskAudioStore()
+
+	srv := server.New(":"+port, s, audioStore)
 	log.Printf("listening on :%s", port)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("ListenAndServe: %v", err)

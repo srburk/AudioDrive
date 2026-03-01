@@ -94,7 +94,7 @@ func getURL(h *handler.Handler, path string, req *http.Request) *httptest.Respon
 // --- POST /urls ---
 
 func TestCreateURL_Created(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	rr := postURL(h, `{"url":"https://example.com"}`)
 
 	if rr.Code != http.StatusCreated {
@@ -113,7 +113,7 @@ func TestCreateURL_Created(t *testing.T) {
 }
 
 func TestCreateURL_InvalidJSON(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	rr := postURL(h, `not json`)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rr.Code)
@@ -121,7 +121,7 @@ func TestCreateURL_InvalidJSON(t *testing.T) {
 }
 
 func TestCreateURL_InvalidURL(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	rr := postURL(h, `{"url":"not-a-url"}`)
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rr.Code)
@@ -132,7 +132,7 @@ func TestCreateURL_InvalidURL(t *testing.T) {
 
 func TestGetURL_OK(t *testing.T) {
 	s := newStub()
-	h := handler.New(s)
+	h := handler.New(s, nil)
 	postURL(h, `{"url":"https://example.com"}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/urls/1", nil)
@@ -150,7 +150,7 @@ func TestGetURL_OK(t *testing.T) {
 }
 
 func TestGetURL_NotFound(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls/999", nil)
 	req.SetPathValue("id", "999")
 	rr := getURL(h, "/urls/999", req)
@@ -160,7 +160,7 @@ func TestGetURL_NotFound(t *testing.T) {
 }
 
 func TestGetURL_BadID(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls/abc", nil)
 	req.SetPathValue("id", "abc")
 	rr := getURL(h, "/urls/abc", req)
@@ -172,7 +172,7 @@ func TestGetURL_BadID(t *testing.T) {
 // --- GET /urls ---
 
 func TestListURLs_Empty(t *testing.T) {
-	h := handler.New(newStub())
+	h := handler.New(newStub(), nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls", nil)
 	rr := httptest.NewRecorder()
 	h.ListURLs(rr, req)
@@ -192,7 +192,7 @@ func TestListURLs_Empty(t *testing.T) {
 
 func TestListURLs_NonEmpty(t *testing.T) {
 	s := newStub()
-	h := handler.New(s)
+	h := handler.New(s, nil)
 	postURL(h, `{"url":"https://a.com"}`)
 	postURL(h, `{"url":"https://b.com"}`)
 

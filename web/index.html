@@ -106,12 +106,6 @@
 
     .url-cell a:hover { text-decoration: underline; }
 
-    .result-id {
-      font-size: 0.78rem;
-      color: #888;
-      margin-top: 0.2rem;
-    }
-
     .date-cell {
       color: #888;
       font-size: 0.83rem;
@@ -140,6 +134,19 @@
       padding: 2rem 1rem;
       font-size: 0.9rem;
     }
+
+    .download-btn {
+      display: inline-block;
+      padding: 0.3rem 0.75rem;
+      background: #e8e8e8;
+      color: #333;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .download-btn:hover { background: #d8d8d8; }
   </style>
 </head>
 <body>
@@ -159,6 +166,7 @@
           <th class="status-cell">Status</th>
           <th>URL</th>
           <th class="date-cell">Saved</th>
+          <th>Audio</th>
         </tr>
       </thead>
       <tbody id="urlBody"></tbody>
@@ -190,7 +198,7 @@
 
     function renderRows(urls) {
       if (!urls.length) {
-        tbody.innerHTML = '<tr><td colspan="4"><div class="empty">No URLs saved yet.</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty">No URLs saved yet.</div></td></tr>';
         return;
       }
       tbody.innerHTML = urls.map(u => `
@@ -199,9 +207,9 @@
           <td class="status-cell">${statusBadge(u.status)}</td>
           <td class="url-cell">
             <a href="${escapeHtml(u.url)}" target="_blank" rel="noopener">${escapeHtml(u.url)}</a>
-            ${u.audio_id != null ? `<div class="result-id">Result ID: ${u.audio_id}</div>` : ''}
           </td>
           <td class="date-cell">${formatDate(u.created_at)}</td>
+          <td>${u.audio_path ? `<a class="download-btn" href="/audio/${u.id}" download="${u.id}.${u.audio_path.split('.').pop()}">Download</a>` : ''}</td>
         </tr>
       `).join('');
     }

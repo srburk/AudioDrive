@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // Client synthesizes text into audio bytes.
@@ -70,6 +71,11 @@ func (c *OpenAIClient) Synthesize(ctx context.Context, text string) ([]byte, err
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("tts: API returned status %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "audio/") {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tts: unexpected content-type %q: %s", ct, string(errBody))
 	}
 
 	audio, err := io.ReadAll(resp.Body)

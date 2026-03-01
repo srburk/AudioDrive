@@ -45,6 +45,7 @@ func TestOpenAIClient_Synthesize_Success(t *testing.T) {
 			t.Errorf("response_format = %q, want mp3", body["response_format"])
 		}
 
+		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(fakeAudio)
 	}))
@@ -57,6 +58,21 @@ func TestOpenAIClient_Synthesize_Success(t *testing.T) {
 	}
 	if string(audio) != string(fakeAudio) {
 		t.Errorf("audio = %q, want %q", audio, fakeAudio)
+	}
+}
+
+func TestOpenAIClient_Synthesize_200WithJSONError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"error":{"message":"invalid api key","type":"invalid_request_error"}}`))
+	}))
+	defer ts.Close()
+
+	client := newTTSClient(ts.URL)
+	_, err := client.Synthesize(context.Background(), "Hello")
+	if err == nil {
+		t.Fatal("Synthesize: expected error for 200+JSON body, got nil")
 	}
 }
 
@@ -78,6 +94,7 @@ func TestOpenAIClient_Synthesize_RequestShape(t *testing.T) {
 	var captured map[string]string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&captured)
+		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("audio"))
 	}))

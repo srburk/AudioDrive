@@ -4,6 +4,10 @@ localhost {
 		reverse_proxy localhost:8080
 	}
 
+	handle /audio/* {
+		reverse_proxy localhost:8080
+	}
+
 	# Serve the static UI
 	handle {
 		root * ./web

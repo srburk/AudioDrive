@@ -8,11 +8,12 @@ import (
 )
 
 type Handler struct {
-	store store.URLStore
+	store      store.URLStore
+	audioStore store.AudioStore
 }
 
-func New(s store.URLStore) *Handler {
-	return &Handler{store: s}
+func New(s store.URLStore, a store.AudioStore) *Handler {
+	return &Handler{store: s, audioStore: a}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

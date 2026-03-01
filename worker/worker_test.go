@@ -99,6 +99,7 @@ func TestProcessOne_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 
 	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fake-audio"))
 	}))
@@ -215,6 +216,7 @@ func TestProcessOne_AudioFileWritten(t *testing.T) {
 	dir := t.TempDir()
 
 	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("audio-content"))
 	}))

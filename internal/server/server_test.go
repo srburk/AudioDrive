@@ -12,7 +12,7 @@ import (
 
 func TestRoutes_Registered(t *testing.T) {
 	s := store.NewInMemory()
-	srv := server.New(":0", s)
+	srv := server.New(":0", s, nil)
 
 	ts := httptest.NewServer(srv.Handler)
 	defer ts.Close()
@@ -26,6 +26,7 @@ func TestRoutes_Registered(t *testing.T) {
 		{http.MethodPost, "/urls", "", http.StatusUnprocessableEntity}, // no body → 422
 		{http.MethodGet, "/urls", "", http.StatusOK},
 		{http.MethodGet, "/urls/999", "", http.StatusNotFound},
+		{http.MethodGet, "/audio/999", "", http.StatusNotFound}, // url not in store → 404
 	}
 
 	for _, rt := range routes {
