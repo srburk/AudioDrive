@@ -6,9 +6,18 @@ import (
 	"time"
 )
 
+const (
+	StatusPending    = "pending"
+	StatusProcessing = "processing"
+	StatusDone       = "done"
+	StatusFailed     = "failed"
+)
+
 type URL struct {
 	ID        int64     `json:"id"`
 	RawURL    string    `json:"url"`
+	Status    string    `json:"status"`
+	AudioID   *int64    `json:"audio_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

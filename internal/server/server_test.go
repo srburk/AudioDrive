@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,15 +20,23 @@ func TestRoutes_Registered(t *testing.T) {
 	routes := []struct {
 		method string
 		path   string
+		body   string
 		want   int
 	}{
-		{http.MethodPost, "/urls", http.StatusUnprocessableEntity}, // no body → 422
-		{http.MethodGet, "/urls", http.StatusOK},
-		{http.MethodGet, "/urls/999", http.StatusNotFound},
+		{http.MethodPost, "/urls", "", http.StatusUnprocessableEntity}, // no body → 422
+		{http.MethodGet, "/urls", "", http.StatusOK},
+		{http.MethodGet, "/urls/999", "", http.StatusNotFound},
+		{http.MethodPatch, "/urls/999", `{"status":"processing"}`, http.StatusNotFound},
 	}
 
 	for _, rt := range routes {
-		req, _ := http.NewRequest(rt.method, ts.URL+rt.path, nil)
+		var reqBody *bytes.Buffer
+		if rt.body != "" {
+			reqBody = bytes.NewBufferString(rt.body)
+		} else {
+			reqBody = &bytes.Buffer{}
+		}
+		req, _ := http.NewRequest(rt.method, ts.URL+rt.path, reqBody)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("%s %s: %v", rt.method, rt.path, err)

@@ -24,6 +24,7 @@ func newStub() *stubStore { return &stubStore{nextID: 1} }
 
 func (s *stubStore) Save(_ context.Context, u model.URL) (model.URL, error) {
 	u.ID = s.nextID
+	u.Status = model.StatusPending
 	u.CreatedAt = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	s.nextID++
 	s.saved = append(s.saved, u)
@@ -42,6 +43,27 @@ func (s *stubStore) GetByID(_ context.Context, id int64) (model.URL, error) {
 func (s *stubStore) List(_ context.Context) ([]model.URL, error) {
 	out := make([]model.URL, len(s.saved))
 	copy(out, s.saved)
+	return out, nil
+}
+
+func (s *stubStore) UpdateStatus(_ context.Context, id int64, status string, audioID *int64) (model.URL, error) {
+	for i, u := range s.saved {
+		if u.ID == id {
+			s.saved[i].Status = status
+			s.saved[i].AudioID = audioID
+			return s.saved[i], nil
+		}
+	}
+	return model.URL{}, store.ErrNotFound
+}
+
+func (s *stubStore) ListByStatus(_ context.Context, status string) ([]model.URL, error) {
+	var out []model.URL
+	for _, u := range s.saved {
+		if u.Status == status {
+			out = append(out, u)
+		}
+	}
 	return out, nil
 }
 
@@ -174,5 +196,78 @@ func TestListURLs_NonEmpty(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&got)
 	if len(got) != 2 {
 		t.Errorf("len = %d, want 2", len(got))
+	}
+}
+
+// --- PATCH /urls/{id} ---
+
+func patchURL(h *handler.Handler, id string, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPatch, "/urls/"+id, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", id)
+	rr := httptest.NewRecorder()
+	h.UpdateURL(rr, req)
+	return rr
+}
+
+func TestUpdateURL_Processing(t *testing.T) {
+	s := newStub()
+	h := handler.New(s)
+	postURL(h, `{"url":"https://example.com"}`)
+
+	rr := patchURL(h, "1", `{"status":"processing"}`)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	var got model.URL
+	json.NewDecoder(rr.Body).Decode(&got)
+	if got.Status != "processing" {
+		t.Errorf("Status = %q, want %q", got.Status, "processing")
+	}
+}
+
+func TestUpdateURL_DoneWithAudioID(t *testing.T) {
+	s := newStub()
+	h := handler.New(s)
+	postURL(h, `{"url":"https://example.com"}`)
+
+	rr := patchURL(h, "1", `{"status":"done","audio_id":42}`)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	var got model.URL
+	json.NewDecoder(rr.Body).Decode(&got)
+	if got.Status != "done" {
+		t.Errorf("Status = %q, want %q", got.Status, "done")
+	}
+	if got.AudioID == nil || *got.AudioID != 42 {
+		t.Errorf("AudioID = %v, want 42", got.AudioID)
+	}
+}
+
+func TestUpdateURL_InvalidStatus(t *testing.T) {
+	s := newStub()
+	h := handler.New(s)
+	postURL(h, `{"url":"https://example.com"}`)
+
+	rr := patchURL(h, "1", `{"status":"bogus"}`)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rr.Code)
+	}
+}
+
+func TestUpdateURL_NotFound(t *testing.T) {
+	h := handler.New(newStub())
+	rr := patchURL(h, "999", `{"status":"done"}`)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestUpdateURL_BadID(t *testing.T) {
+	h := handler.New(newStub())
+	rr := patchURL(h, "abc", `{"status":"done"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
 	}
 }

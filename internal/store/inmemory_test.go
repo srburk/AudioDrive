@@ -81,3 +81,67 @@ func TestInMemory_List(t *testing.T) {
 		t.Errorf("List: urls[0].RawURL = %q, want %q", urls[0].RawURL, "https://first.com")
 	}
 }
+
+func TestInMemory_Save_DefaultStatus(t *testing.T) {
+	s := store.NewInMemory()
+	ctx := context.Background()
+
+	u, _ := s.Save(ctx, newTestURL("https://example.com"))
+	if u.Status != "pending" {
+		t.Errorf("Save: Status = %q, want %q", u.Status, "pending")
+	}
+}
+
+func TestInMemory_UpdateStatus(t *testing.T) {
+	s := store.NewInMemory()
+	ctx := context.Background()
+
+	saved, _ := s.Save(ctx, newTestURL("https://example.com"))
+
+	audioID := int64(42)
+	updated, err := s.UpdateStatus(ctx, saved.ID, "done", &audioID)
+	if err != nil {
+		t.Fatalf("UpdateStatus: unexpected error: %v", err)
+	}
+	if updated.Status != "done" {
+		t.Errorf("UpdateStatus: Status = %q, want %q", updated.Status, "done")
+	}
+	if updated.AudioID == nil || *updated.AudioID != 42 {
+		t.Errorf("UpdateStatus: AudioID = %v, want 42", updated.AudioID)
+	}
+}
+
+func TestInMemory_UpdateStatus_NotFound(t *testing.T) {
+	s := store.NewInMemory()
+	ctx := context.Background()
+
+	_, err := s.UpdateStatus(ctx, 9999, "done", nil)
+	if err != store.ErrNotFound {
+		t.Errorf("UpdateStatus: err = %v, want store.ErrNotFound", err)
+	}
+}
+
+func TestInMemory_ListByStatus(t *testing.T) {
+	s := store.NewInMemory()
+	ctx := context.Background()
+
+	u1, _ := s.Save(ctx, newTestURL("https://a.com"))
+	u2, _ := s.Save(ctx, newTestURL("https://b.com"))
+	s.Save(ctx, newTestURL("https://c.com"))
+
+	s.UpdateStatus(ctx, u1.ID, "processing", nil)
+	s.UpdateStatus(ctx, u2.ID, "processing", nil)
+
+	results, err := s.ListByStatus(ctx, "processing")
+	if err != nil {
+		t.Fatalf("ListByStatus: unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("ListByStatus: got %d items, want 2", len(results))
+	}
+
+	pending, _ := s.ListByStatus(ctx, "pending")
+	if len(pending) != 1 {
+		t.Errorf("ListByStatus pending: got %d items, want 1", len(pending))
+	}
+}
