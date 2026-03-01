@@ -1,0 +1,12 @@
+localhost {
+	# Proxy API routes to the Go service
+	handle /urls* {
+		reverse_proxy localhost:8080
+	}
+
+	# Serve the static UI
+	handle {
+		root * ./web
+		file_server
+	}
+}

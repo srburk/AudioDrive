@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"sync"
+	"time"
 
 	"audiodrive/internal/model"
 )
@@ -46,13 +47,13 @@ func (s *InMemory) List(_ context.Context) ([]model.URL, error) {
 	return out, nil
 }
 
-func (s *InMemory) UpdateStatus(_ context.Context, id int64, status string, audioID *int64) (model.URL, error) {
+func (s *InMemory) UpdateStatus(_ context.Context, id int64, status string, audioPath *string) (model.URL, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, u := range s.records {
 		if u.ID == id {
 			s.records[i].Status = status
-			s.records[i].AudioID = audioID
+			s.records[i].AudioPath = audioPath
 			return s.records[i], nil
 		}
 	}
@@ -69,4 +70,39 @@ func (s *InMemory) ListByStatus(_ context.Context, status string) ([]model.URL, 
 		}
 	}
 	return out, nil
+}
+
+func (s *InMemory) ClaimPending(_ context.Context) (model.URL, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for i, u := range s.records {
+		if u.Status == model.StatusPending {
+			s.records[i].Status = model.StatusProcessing
+			s.records[i].Attempts++
+			s.records[i].LastAttemptedAt = &now
+			return s.records[i], nil
+		}
+	}
+	return model.URL{}, ErrNotFound
+}
+
+func (s *InMemory) ReapStuck(_ context.Context, threshold time.Duration, maxAttempts int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-threshold)
+	n := 0
+	for i, u := range s.records {
+		if u.Status == model.StatusProcessing &&
+			u.LastAttemptedAt != nil &&
+			u.LastAttemptedAt.Before(cutoff) {
+			if u.Attempts >= maxAttempts {
+				s.records[i].Status = model.StatusFailed
+			} else {
+				s.records[i].Status = model.StatusPending
+			}
+			n++
+		}
+	}
+	return n, nil
 }

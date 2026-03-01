@@ -26,7 +26,6 @@ func TestRoutes_Registered(t *testing.T) {
 		{http.MethodPost, "/urls", "", http.StatusUnprocessableEntity}, // no body → 422
 		{http.MethodGet, "/urls", "", http.StatusOK},
 		{http.MethodGet, "/urls/999", "", http.StatusNotFound},
-		{http.MethodPatch, "/urls/999", `{"status":"processing"}`, http.StatusNotFound},
 	}
 
 	for _, rt := range routes {

@@ -17,8 +17,11 @@ type URL struct {
 	ID        int64     `json:"id"`
 	RawURL    string    `json:"url"`
 	Status    string    `json:"status"`
-	AudioID   *int64    `json:"audio_id,omitempty"`
+	AudioPath *string   `json:"audio_path,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+	// operational — not in JSON
+	Attempts        int        `json:"-"`
+	LastAttemptedAt *time.Time `json:"-"`
 }
 
 var ErrInvalidURL = errors.New("invalid url: must be absolute with http or https scheme")
