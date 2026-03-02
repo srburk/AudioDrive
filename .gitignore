@@ -2,3 +2,4 @@
 .DS_Store
 /audio
 /tmp_audio
+.env

@@ -1,10 +1,13 @@
+-include .env
+
 DATABASE_URL  ?= postgres://localhost/audiodrive?sslmode=disable
+BASE_URL      ?= http://localhost:8080
 PORT          ?= 8080
 TTS_ENDPOINT  ?= https://api.openai.com/v1/audio/speech
 TTS_API_KEY   ?=
 AUDIO_DIR     ?= $(CURDIR)/audio
 
-export DATABASE_URL PORT TTS_ENDPOINT TTS_API_KEY AUDIO_DIR
+export DATABASE_URL BASE_URL PORT TTS_ENDPOINT TTS_API_KEY AUDIO_DIR
 
 .PHONY: all api caddy stop logs clean test build
 
