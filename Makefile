@@ -9,7 +9,7 @@ AUDIO_DIR     ?= $(CURDIR)/audio
 
 export DATABASE_URL BASE_URL PORT TTS_ENDPOINT TTS_API_KEY AUDIO_DIR
 
-.PHONY: all api caddy stop logs clean test build
+.PHONY: all api caddy funnel stop logs clean test build
 
 ## Start everything (API + caddy) in the background
 all: build audio
@@ -26,6 +26,10 @@ api: bin/api
 ## Run Caddy (foreground — used via make -j)
 caddy:
 	caddy run --config Caddyfile
+
+## Expose port 80 via Tailscale Funnel (Tailscale handles TLS)
+funnel:
+	tailscale funnel 80
 
 ## Create the audio output directory
 audio:
