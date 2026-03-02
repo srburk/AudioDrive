@@ -26,6 +26,8 @@ func (s *stubAudioStore) Get(_ string) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader(s.content)), s.mime, nil
 }
 
+func (s *stubAudioStore) Delete(_ string) error { return nil }
+
 func TestGetAudio_OK(t *testing.T) {
 	audioPath := "/fake/1.mp3"
 	s := newStub()

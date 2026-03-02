@@ -15,6 +15,16 @@ func (h *Handler) DeleteURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	u, err := h.store.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	if err := h.store.Delete(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
@@ -22,6 +32,10 @@ func (h *Handler) DeleteURL(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	if u.AudioPath != nil && h.audioStore != nil {
+		h.audioStore.Delete(*u.AudioPath) //nolint:errcheck — best-effort cleanup
 	}
 
 	w.WriteHeader(http.StatusNoContent)

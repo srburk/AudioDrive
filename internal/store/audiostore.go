@@ -7,11 +7,13 @@ import (
 	"strings"
 )
 
-// AudioStore retrieves synthesized audio files by their stored path.
+// AudioStore retrieves and deletes synthesized audio files by their stored path.
 type AudioStore interface {
 	// Get opens the file at path and returns a ReadCloser and MIME type.
 	// Returns ErrNotFound if the file does not exist.
 	Get(path string) (io.ReadCloser, string, error)
+	// Delete removes the file at path. Returns nil if the file does not exist.
+	Delete(path string) error
 }
 
 var mimeTypes = map[string]string{
@@ -27,6 +29,14 @@ type DiskAudioStore struct{}
 
 func NewDiskAudioStore() *DiskAudioStore {
 	return &DiskAudioStore{}
+}
+
+func (s *DiskAudioStore) Delete(path string) error {
+	err := os.Remove(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (s *DiskAudioStore) Get(path string) (io.ReadCloser, string, error) {
