@@ -2,10 +2,11 @@ package worker_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,47 +18,37 @@ import (
 // --- stub store ---
 
 type stubStore struct {
-	pending  []model.URL
-	updates  []statusUpdate
-	claimErr error
+	mu      sync.Mutex
+	updates []string // status values received
+	done    chan struct{}
+	closed  bool
 }
 
-type statusUpdate struct {
-	id        int64
-	status    string
-	audioPath *string
+func newStubStore() *stubStore {
+	return &stubStore{done: make(chan struct{})}
 }
 
-func (s *stubStore) ClaimPending(_ context.Context) (model.URL, error) {
-	if s.claimErr != nil {
-		return model.URL{}, s.claimErr
+func (s *stubStore) UpdateStatus(_ context.Context, _ int64, status string, _ *string) (model.URL, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = append(s.updates, status)
+	if !s.closed && (status == model.StatusDone || status == model.StatusFailed) {
+		s.closed = true
+		close(s.done)
 	}
-	if len(s.pending) == 0 {
-		return model.URL{}, store.ErrNotFound
-	}
-	u := s.pending[0]
-	s.pending = s.pending[1:]
-	u.Status = model.StatusProcessing
-	u.Attempts++
-	return u, nil
+	return model.URL{}, nil
 }
 
-func (s *stubStore) UpdateStatus(_ context.Context, id int64, status string, audioPath *string) (model.URL, error) {
-	s.updates = append(s.updates, statusUpdate{id, status, audioPath})
-	return model.URL{ID: id, Status: status, AudioPath: audioPath}, nil
+func (s *stubStore) Update(_ context.Context, _ int64, _, _ *string) (model.URL, error) {
+	return model.URL{}, nil
 }
 
 func (s *stubStore) Save(_ context.Context, u model.URL) (model.URL, error) { return u, nil }
 func (s *stubStore) GetByID(_ context.Context, _ int64) (model.URL, error) {
 	return model.URL{}, store.ErrNotFound
 }
-func (s *stubStore) List(_ context.Context) ([]model.URL, error)              { return nil, nil }
-func (s *stubStore) ListByStatus(_ context.Context, _ string) ([]model.URL, error) {
-	return nil, nil
-}
-func (s *stubStore) ReapStuck(_ context.Context, _ time.Duration, _ int) (int, error) {
-	return 0, nil
-}
+func (s *stubStore) List(_ context.Context) ([]model.URL, error)   { return nil, nil }
+func (s *stubStore) Delete(_ context.Context, _ int64) error       { return nil }
 
 // --- stub fetcher ---
 
@@ -81,34 +72,18 @@ func (t *stubTTS) Synthesize(_ context.Context, _ string) ([]byte, error) {
 	return t.audio, t.err
 }
 
-// --- helpers ---
-
-func newTestWorker(s *stubStore, f worker.Fetcher, t worker.Client, audioDir string) *worker.Worker {
-	cfg := worker.Config{
-		TTSFormat:   "mp3",
-		TTSMaxChars: 4096,
-		MaxAttempts: 3,
-		AudioDir:    audioDir,
-	}
-	return worker.New(cfg, s, f, t)
-}
-
 // --- tests ---
 
-func TestProcessOne_HappyPath(t *testing.T) {
+func TestSubmit_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 
 	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
-		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fake-audio"))
 	}))
 	defer ttsServer.Close()
 
-	s := &stubStore{
-		pending: []model.URL{{ID: 1, RawURL: "https://example.com", Status: model.StatusPending, Attempts: 0}},
-	}
-	f := &stubFetcher{html: "<html><body><p>Article text</p></body></html>"}
+	stub := newStubStore()
 	cfg := worker.Config{
 		TTSEndpoint: ttsServer.URL,
 		TTSAPIKey:   "key",
@@ -116,116 +91,151 @@ func TestProcessOne_HappyPath(t *testing.T) {
 		TTSVoice:    "alloy",
 		TTSFormat:   "mp3",
 		TTSMaxChars: 4096,
-		MaxAttempts: 3,
+		Concurrency: 1,
 		AudioDir:    dir,
 	}
-	tts := worker.NewOpenAIClient(cfg)
-	w := worker.New(cfg, s, f, tts)
+	f := &stubFetcher{html: "<html><head><title>Test</title></head><body><p>Article text</p></body></html>"}
+	w := worker.New(cfg, stub, f, worker.NewOpenAIClient(cfg))
+	w.Submit(model.URL{ID: 1, RawURL: "https://example.com"})
 
-	err := w.ProcessOne(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessOne: unexpected error: %v", err)
+	select {
+	case <-stub.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
-	if len(s.updates) == 0 {
-		t.Fatal("expected UpdateStatus to be called")
-	}
-	last := s.updates[len(s.updates)-1]
-	if last.status != model.StatusDone {
-		t.Errorf("status = %q, want done", last.status)
-	}
-	if last.audioPath == nil {
-		t.Error("audioPath should not be nil on success")
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if last := stub.updates[len(stub.updates)-1]; last != "done" {
+		t.Errorf("final status = %q, want done", last)
 	}
 }
 
-func TestProcessOne_EmptyQueue_ReturnsNotFound(t *testing.T) {
-	dir := t.TempDir()
-	s := &stubStore{}
-	w := newTestWorker(s, &stubFetcher{}, &stubTTS{}, dir)
+func TestSubmit_FetchError_MarksFailedImmediately(t *testing.T) {
+	stub := newStubStore()
+	cfg := worker.Config{Concurrency: 1, TTSFormat: "mp3", TTSMaxChars: 4096, AudioDir: t.TempDir()}
+	f := &stubFetcher{err: errFetch}
+	w := worker.New(cfg, stub, f, nil)
+	w.Submit(model.URL{ID: 2, RawURL: "https://example.com"})
 
-	err := w.ProcessOne(context.Background())
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("ProcessOne: err = %v, want ErrNotFound", err)
+	select {
+	case <-stub.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if last := stub.updates[len(stub.updates)-1]; last != "failed" {
+		t.Errorf("final status = %q, want failed", last)
 	}
 }
 
-func TestProcessOne_FetchError_Retry(t *testing.T) {
-	dir := t.TempDir()
-	s := &stubStore{
-		pending: []model.URL{{ID: 1, RawURL: "https://example.com", Status: model.StatusPending, Attempts: 0}},
-	}
-	f := &stubFetcher{err: errors.New("connection refused")}
+var errFetch = &fetchError{"connection refused"}
 
-	w := newTestWorker(s, f, &stubTTS{}, dir)
-	err := w.ProcessOne(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessOne: unexpected error: %v", err)
+type fetchError struct{ msg string }
+
+func (e *fetchError) Error() string { return e.msg }
+
+func TestSubmit_SemaphoreLimitsConcurrency(t *testing.T) {
+	const jobs = 5
+	const maxConcurrency = 2
+
+	var active, peak int64
+	var wg sync.WaitGroup
+
+	// A fetcher that tracks concurrent calls
+	blockCh := make(chan struct{})
+	concurrentFetcher := &countingFetcher{
+		active: &active,
+		peak:   &peak,
+		wg:     &wg,
+		block:  blockCh,
 	}
-	if len(s.updates) == 0 {
-		t.Fatal("expected UpdateStatus to be called after fetch error")
+	// Unblock after a short delay
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(blockCh)
+	}()
+
+	stub := &multiDoneStore{count: jobs, done: make(chan struct{})}
+	cfg := worker.Config{Concurrency: maxConcurrency, TTSFormat: "mp3", TTSMaxChars: 4096, AudioDir: t.TempDir()}
+	w := worker.New(cfg, stub, concurrentFetcher, &stubTTS{err: errFetch})
+
+	wg.Add(jobs)
+	for i := 0; i < jobs; i++ {
+		w.Submit(model.URL{ID: int64(i + 1), RawURL: "https://example.com"})
 	}
-	// attempts=1, maxAttempts=3 → should requeue as pending
-	if s.updates[0].status != model.StatusPending {
-		t.Errorf("status = %q, want pending (retry)", s.updates[0].status)
+
+	select {
+	case <-stub.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for all jobs")
+	}
+
+	if peak > maxConcurrency {
+		t.Errorf("peak concurrency %d > %d", peak, maxConcurrency)
 	}
 }
 
-func TestProcessOne_FetchError_MaxAttempts_Fail(t *testing.T) {
-	dir := t.TempDir()
-	s := &stubStore{
-		pending: []model.URL{{ID: 1, RawURL: "https://example.com", Status: model.StatusProcessing, Attempts: 3}},
-	}
-	f := &stubFetcher{err: errors.New("timeout")}
-
-	w := newTestWorker(s, f, &stubTTS{}, dir)
-	err := w.ProcessOne(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessOne: unexpected error: %v", err)
-	}
-	if len(s.updates) == 0 {
-		t.Fatal("expected UpdateStatus to be called")
-	}
-	if s.updates[0].status != model.StatusFailed {
-		t.Errorf("status = %q, want failed (exhausted)", s.updates[0].status)
-	}
+type countingFetcher struct {
+	active *int64
+	peak   *int64
+	wg     *sync.WaitGroup
+	block  chan struct{}
 }
 
-func TestProcessOne_TTSError_Retry(t *testing.T) {
-	dir := t.TempDir()
-	s := &stubStore{
-		pending: []model.URL{{ID: 2, RawURL: "https://example.com", Status: model.StatusProcessing, Attempts: 1}},
+func (f *countingFetcher) Fetch(_ context.Context, _ string) (string, error) {
+	curr := atomic.AddInt64(f.active, 1)
+	for {
+		p := atomic.LoadInt64(f.peak)
+		if curr <= p || atomic.CompareAndSwapInt64(f.peak, p, curr) {
+			break
+		}
 	}
-	f := &stubFetcher{html: "<html><body>text</body></html>"}
-	tts := &stubTTS{err: errors.New("tts unavailable")}
-
-	w := newTestWorker(s, f, tts, dir)
-	err := w.ProcessOne(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessOne: unexpected error: %v", err)
-	}
-	if len(s.updates) == 0 {
-		t.Fatal("expected UpdateStatus to be called after TTS error")
-	}
-	// attempts=1, maxAttempts=3 → pending
-	if s.updates[0].status != model.StatusPending {
-		t.Errorf("status = %q, want pending (retry after TTS error)", s.updates[0].status)
-	}
+	<-f.block
+	atomic.AddInt64(f.active, -1)
+	f.wg.Done()
+	return "", errFetch
 }
 
-func TestProcessOne_AudioFileWritten(t *testing.T) {
+type multiDoneStore struct {
+	mu      sync.Mutex
+	count   int
+	done    chan struct{}
+	closed  bool
+}
+
+func (s *multiDoneStore) UpdateStatus(_ context.Context, _ int64, status string, _ *string) (model.URL, error) {
+	if status == model.StatusFailed || status == model.StatusDone {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.count--
+		if s.count <= 0 && !s.closed {
+			s.closed = true
+			close(s.done)
+		}
+	}
+	return model.URL{}, nil
+}
+func (s *multiDoneStore) Update(_ context.Context, _ int64, _, _ *string) (model.URL, error) {
+	return model.URL{}, nil
+}
+func (s *multiDoneStore) Save(_ context.Context, u model.URL) (model.URL, error) { return u, nil }
+func (s *multiDoneStore) GetByID(_ context.Context, _ int64) (model.URL, error) {
+	return model.URL{}, store.ErrNotFound
+}
+func (s *multiDoneStore) List(_ context.Context) ([]model.URL, error) { return nil, nil }
+func (s *multiDoneStore) Delete(_ context.Context, _ int64) error     { return nil }
+
+func TestSubmit_AudioFileWritten(t *testing.T) {
 	dir := t.TempDir()
 
 	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
-		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("audio-content"))
 	}))
 	defer ttsServer.Close()
 
-	s := &stubStore{
-		pending: []model.URL{{ID: 5, RawURL: "https://example.com", Status: model.StatusPending, Attempts: 0}},
-	}
-	f := &stubFetcher{html: "<html><body>some text</body></html>"}
+	stub := newStubStore()
 	cfg := worker.Config{
 		TTSEndpoint: ttsServer.URL,
 		TTSAPIKey:   "key",
@@ -233,14 +243,17 @@ func TestProcessOne_AudioFileWritten(t *testing.T) {
 		TTSVoice:    "alloy",
 		TTSFormat:   "mp3",
 		TTSMaxChars: 4096,
-		MaxAttempts: 3,
+		Concurrency: 1,
 		AudioDir:    dir,
 	}
-	tts := worker.NewOpenAIClient(cfg)
-	w := worker.New(cfg, s, f, tts)
+	f := &stubFetcher{html: "<html><body>some text</body></html>"}
+	w := worker.New(cfg, stub, f, worker.NewOpenAIClient(cfg))
+	w.Submit(model.URL{ID: 5, RawURL: "https://example.com"})
 
-	if err := w.ProcessOne(context.Background()); err != nil {
-		t.Fatalf("ProcessOne: unexpected error: %v", err)
+	select {
+	case <-stub.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 
 	expected := dir + "/5.mp3"

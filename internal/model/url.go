@@ -14,11 +14,13 @@ const (
 )
 
 type URL struct {
-	ID        int64     `json:"id"`
-	RawURL    string    `json:"url"`
-	Status    string    `json:"status"`
-	AudioPath *string   `json:"audio_path,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          int64   `json:"id"`
+	RawURL      string  `json:"url"`
+	Status      string  `json:"status"`
+	AudioPath   *string `json:"audio_path,omitempty"`
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 	// operational — not in JSON
 	Attempts        int        `json:"-"`
 	LastAttemptedAt *time.Time `json:"-"`

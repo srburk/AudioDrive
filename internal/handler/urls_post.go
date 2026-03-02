@@ -34,5 +34,9 @@ func (h *Handler) CreateURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.submit != nil {
+		h.submit(saved)
+	}
+
 	writeJSON(w, http.StatusCreated, saved)
 }

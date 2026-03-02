@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 
@@ -84,5 +85,80 @@ func TestPostgres_List(t *testing.T) {
 	}
 	if len(urls) < 2 {
 		t.Errorf("List: got %d items, want >= 2", len(urls))
+	}
+}
+
+func TestPostgres_Update_SetsFields(t *testing.T) {
+	db := openTestDB(t)
+	s, err := store.NewPostgres(db)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+
+	ctx := context.Background()
+	saved, _ := s.Save(ctx, model.URL{RawURL: "https://update-test.example.com"})
+
+	title := "My Title"
+	got, err := s.Update(ctx, saved.ID, &title, nil)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got.Title == nil || *got.Title != "My Title" {
+		t.Errorf("title: got %v", got.Title)
+	}
+	if got.Description != nil {
+		t.Error("description should remain nil")
+	}
+
+	desc := "My Desc"
+	got2, _ := s.Update(ctx, saved.ID, nil, &desc)
+	if got2.Title == nil || *got2.Title != "My Title" {
+		t.Error("title was overwritten")
+	}
+	if got2.Description == nil || *got2.Description != "My Desc" {
+		t.Error("desc not set")
+	}
+}
+
+func TestPostgres_Update_NotFound(t *testing.T) {
+	db := openTestDB(t)
+	s, err := store.NewPostgres(db)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+
+	_, err = s.Update(context.Background(), -1, nil, nil)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestPostgres_Delete(t *testing.T) {
+	db := openTestDB(t)
+	s, err := store.NewPostgres(db)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+
+	ctx := context.Background()
+	saved, _ := s.Save(ctx, model.URL{RawURL: "https://delete-test.example.com"})
+	if err := s.Delete(ctx, saved.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.GetByID(ctx, saved.ID)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Error("expected ErrNotFound after delete")
+	}
+}
+
+func TestPostgres_Delete_NotFound(t *testing.T) {
+	db := openTestDB(t)
+	s, err := store.NewPostgres(db)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+
+	if err := s.Delete(context.Background(), -1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }

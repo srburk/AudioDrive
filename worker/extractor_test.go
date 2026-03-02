@@ -78,3 +78,64 @@ func TestExtractText_EmptyInput(t *testing.T) {
 		t.Errorf("ExtractText of empty = %q, want empty", got)
 	}
 }
+
+func TestExtractMeta_TitleTag(t *testing.T) {
+	title, _ := worker.ExtractMeta(`<html><head><title>Hello</title></head></html>`)
+	if title != "Hello" {
+		t.Errorf("got %q", title)
+	}
+}
+
+func TestExtractMeta_OGTitleFallback(t *testing.T) {
+	title, _ := worker.ExtractMeta(`<html><head>
+		<meta property="og:title" content="OG Title">
+	</head></html>`)
+	if title != "OG Title" {
+		t.Errorf("got %q", title)
+	}
+}
+
+func TestExtractMeta_TitleBeatsOG(t *testing.T) {
+	title, _ := worker.ExtractMeta(`<html><head>
+		<title>Real</title>
+		<meta property="og:title" content="OG">
+	</head></html>`)
+	if title != "Real" {
+		t.Errorf("got %q", title)
+	}
+}
+
+func TestExtractMeta_Description(t *testing.T) {
+	_, desc := worker.ExtractMeta(`<html><head>
+		<meta name="description" content="Page summary">
+	</head></html>`)
+	if desc != "Page summary" {
+		t.Errorf("got %q", desc)
+	}
+}
+
+func TestExtractMeta_OGDescFallback(t *testing.T) {
+	_, desc := worker.ExtractMeta(`<html><head>
+		<meta property="og:description" content="OG Desc">
+	</head></html>`)
+	if desc != "OG Desc" {
+		t.Errorf("got %q", desc)
+	}
+}
+
+func TestExtractMeta_NameDescBeatsOG(t *testing.T) {
+	_, desc := worker.ExtractMeta(`<html><head>
+		<meta name="description" content="Meta Desc">
+		<meta property="og:description" content="OG Desc">
+	</head></html>`)
+	if desc != "Meta Desc" {
+		t.Errorf("got %q", desc)
+	}
+}
+
+func TestExtractMeta_Empty(t *testing.T) {
+	title, desc := worker.ExtractMeta("")
+	if title != "" || desc != "" {
+		t.Errorf("got %q %q", title, desc)
+	}
+}

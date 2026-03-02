@@ -2,7 +2,7 @@ package store_test
 
 import (
 	"context"
-	"sync"
+	"errors"
 	"testing"
 	"time"
 
@@ -121,192 +121,59 @@ func TestInMemory_UpdateStatus_NotFound(t *testing.T) {
 	}
 }
 
-func TestInMemory_ListByStatus(t *testing.T) {
+func TestInMemory_Update_SetsFields(t *testing.T) {
 	s := store.NewInMemory()
-	ctx := context.Background()
+	saved, _ := s.Save(context.Background(), model.URL{RawURL: "https://a.com"})
 
-	u1, _ := s.Save(ctx, newTestURL("https://a.com"))
-	u2, _ := s.Save(ctx, newTestURL("https://b.com"))
-	s.Save(ctx, newTestURL("https://c.com"))
-
-	s.UpdateStatus(ctx, u1.ID, "processing", nil)
-	s.UpdateStatus(ctx, u2.ID, "processing", nil)
-
-	results, err := s.ListByStatus(ctx, "processing")
+	title := "My Title"
+	got, err := s.Update(context.Background(), saved.ID, &title, nil)
 	if err != nil {
-		t.Fatalf("ListByStatus: unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 2 {
-		t.Errorf("ListByStatus: got %d items, want 2", len(results))
+	if got.Title == nil || *got.Title != "My Title" {
+		t.Errorf("title: got %v", got.Title)
+	}
+	if got.Description != nil {
+		t.Error("description should remain nil")
 	}
 
-	pending, _ := s.ListByStatus(ctx, "pending")
-	if len(pending) != 1 {
-		t.Errorf("ListByStatus pending: got %d items, want 1", len(pending))
+	// second call: description only — title must not be cleared
+	desc := "My Desc"
+	got2, _ := s.Update(context.Background(), saved.ID, nil, &desc)
+	if got2.Title == nil || *got2.Title != "My Title" {
+		t.Error("title was overwritten")
 	}
-}
-
-func TestInMemory_ClaimPending_ReturnFirstPending(t *testing.T) {
-	s := store.NewInMemory()
-	ctx := context.Background()
-
-	s.Save(ctx, newTestURL("https://a.com"))
-	s.Save(ctx, newTestURL("https://b.com"))
-
-	u, err := s.ClaimPending(ctx)
-	if err != nil {
-		t.Fatalf("ClaimPending: unexpected error: %v", err)
-	}
-	if u.Status != model.StatusProcessing {
-		t.Errorf("ClaimPending: Status = %q, want %q", u.Status, model.StatusProcessing)
-	}
-	if u.Attempts != 1 {
-		t.Errorf("ClaimPending: Attempts = %d, want 1", u.Attempts)
-	}
-	if u.LastAttemptedAt == nil {
-		t.Error("ClaimPending: LastAttemptedAt should not be nil")
-	}
-	// Should claim the first one (lowest ID)
-	if u.RawURL != "https://a.com" {
-		t.Errorf("ClaimPending: RawURL = %q, want https://a.com", u.RawURL)
+	if got2.Description == nil || *got2.Description != "My Desc" {
+		t.Error("desc not set")
 	}
 }
 
-func TestInMemory_ClaimPending_SkipsProcessing(t *testing.T) {
+func TestInMemory_Update_NotFound(t *testing.T) {
 	s := store.NewInMemory()
-	ctx := context.Background()
-
-	u1, _ := s.Save(ctx, newTestURL("https://a.com"))
-	s.Save(ctx, newTestURL("https://b.com"))
-
-	// Mark first as processing manually
-	s.UpdateStatus(ctx, u1.ID, model.StatusProcessing, nil)
-
-	// ClaimPending should return the second one
-	u, err := s.ClaimPending(ctx)
-	if err != nil {
-		t.Fatalf("ClaimPending: unexpected error: %v", err)
-	}
-	if u.RawURL != "https://b.com" {
-		t.Errorf("ClaimPending: RawURL = %q, want https://b.com", u.RawURL)
+	_, err := s.Update(context.Background(), 999, nil, nil)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }
 
-func TestInMemory_ClaimPending_EmptyQueueReturnsNotFound(t *testing.T) {
+func TestInMemory_Delete(t *testing.T) {
 	s := store.NewInMemory()
-	ctx := context.Background()
-
-	_, err := s.ClaimPending(ctx)
-	if err != store.ErrNotFound {
-		t.Errorf("ClaimPending: err = %v, want store.ErrNotFound", err)
+	saved, _ := s.Save(context.Background(), model.URL{RawURL: "https://a.com"})
+	if err := s.Delete(context.Background(), saved.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetByID(context.Background(), saved.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Error("expected ErrNotFound after delete")
+	}
+	all, _ := s.List(context.Background())
+	if len(all) != 0 {
+		t.Errorf("want empty list, got %d", len(all))
 	}
 }
 
-func TestInMemory_ClaimPending_Concurrent(t *testing.T) {
+func TestInMemory_Delete_NotFound(t *testing.T) {
 	s := store.NewInMemory()
-	ctx := context.Background()
-
-	s.Save(ctx, newTestURL("https://a.com"))
-	s.Save(ctx, newTestURL("https://b.com"))
-
-	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		claimed []int64
-	)
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			u, err := s.ClaimPending(ctx)
-			if err == nil {
-				mu.Lock()
-				claimed = append(claimed, u.ID)
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-
-	if len(claimed) != 2 {
-		t.Errorf("concurrent ClaimPending: got %d claims, want 2", len(claimed))
-	}
-	// No duplicates
-	seen := map[int64]bool{}
-	for _, id := range claimed {
-		if seen[id] {
-			t.Errorf("duplicate claim for ID %d", id)
-		}
-		seen[id] = true
-	}
-}
-
-func TestInMemory_ReapStuck_ResetsOldProcessing(t *testing.T) {
-	s := store.NewInMemory()
-	ctx := context.Background()
-
-	s.Save(ctx, newTestURL("https://a.com"))
-	u, _ := s.ClaimPending(ctx)
-
-	// Backdate last_attempted_at by manipulating via a second claim + the returned value's age
-	// Reap with threshold=0 to catch everything
-	n, err := s.ReapStuck(ctx, 0, 3)
-	if err != nil {
-		t.Fatalf("ReapStuck: unexpected error: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("ReapStuck: n = %d, want 1", n)
-	}
-
-	got, _ := s.GetByID(ctx, u.ID)
-	if got.Status != model.StatusPending {
-		t.Errorf("ReapStuck: Status = %q, want pending", got.Status)
-	}
-}
-
-func TestInMemory_ReapStuck_MarksFailedWhenExhausted(t *testing.T) {
-	s := store.NewInMemory()
-	ctx := context.Background()
-
-	s.Save(ctx, newTestURL("https://a.com"))
-
-	// Claim 3 times to exhaust maxAttempts=3, then reap
-	for i := 0; i < 3; i++ {
-		u, _ := s.ClaimPending(ctx)
-		// Reset back to pending except last iteration
-		if i < 2 {
-			s.UpdateStatus(ctx, u.ID, model.StatusPending, nil)
-		}
-	}
-
-	// Now it's processing with attempts=3; reap with threshold=0, maxAttempts=3
-	n, err := s.ReapStuck(ctx, 0, 3)
-	if err != nil {
-		t.Fatalf("ReapStuck: unexpected error: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("ReapStuck: n = %d, want 1", n)
-	}
-
-	got, _ := s.GetByID(ctx, 1)
-	if got.Status != model.StatusFailed {
-		t.Errorf("ReapStuck: Status = %q, want failed", got.Status)
-	}
-}
-
-func TestInMemory_ReapStuck_IgnoresRecentProcessing(t *testing.T) {
-	s := store.NewInMemory()
-	ctx := context.Background()
-
-	s.Save(ctx, newTestURL("https://a.com"))
-	s.ClaimPending(ctx) // just claimed, recent
-
-	// threshold=5min: should NOT reap a job just claimed
-	n, err := s.ReapStuck(ctx, 5*time.Minute, 3)
-	if err != nil {
-		t.Fatalf("ReapStuck: unexpected error: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("ReapStuck: n = %d, want 0 (job is recent)", n)
+	if err := s.Delete(context.Background(), 999); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }

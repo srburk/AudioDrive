@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"sync"
-	"time"
 
 	"audiodrive/internal/model"
 )
@@ -60,49 +59,32 @@ func (s *InMemory) UpdateStatus(_ context.Context, id int64, status string, audi
 	return model.URL{}, ErrNotFound
 }
 
-func (s *InMemory) ListByStatus(_ context.Context, status string) ([]model.URL, error) {
+func (s *InMemory) Update(_ context.Context, id int64, title, description *string) (model.URL, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []model.URL
-	for _, u := range s.records {
-		if u.Status == status {
-			out = append(out, u)
-		}
-	}
-	return out, nil
-}
-
-func (s *InMemory) ClaimPending(_ context.Context) (model.URL, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
 	for i, u := range s.records {
-		if u.Status == model.StatusPending {
-			s.records[i].Status = model.StatusProcessing
-			s.records[i].Attempts++
-			s.records[i].LastAttemptedAt = &now
-			return s.records[i], nil
+		if u.ID != id {
+			continue
 		}
+		if title != nil {
+			s.records[i].Title = title
+		}
+		if description != nil {
+			s.records[i].Description = description
+		}
+		return s.records[i], nil
 	}
 	return model.URL{}, ErrNotFound
 }
 
-func (s *InMemory) ReapStuck(_ context.Context, threshold time.Duration, maxAttempts int) (int, error) {
+func (s *InMemory) Delete(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cutoff := time.Now().Add(-threshold)
-	n := 0
 	for i, u := range s.records {
-		if u.Status == model.StatusProcessing &&
-			u.LastAttemptedAt != nil &&
-			u.LastAttemptedAt.Before(cutoff) {
-			if u.Attempts >= maxAttempts {
-				s.records[i].Status = model.StatusFailed
-			} else {
-				s.records[i].Status = model.StatusPending
-			}
-			n++
+		if u.ID == id {
+			s.records = append(s.records[:i], s.records[i+1:]...)
+			return nil
 		}
 	}
-	return n, nil
+	return ErrNotFound
 }

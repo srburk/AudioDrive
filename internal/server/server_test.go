@@ -12,7 +12,7 @@ import (
 
 func TestRoutes_Registered(t *testing.T) {
 	s := store.NewInMemory()
-	srv := server.New(":0", s, nil)
+	srv := server.New(":0", s, nil, nil)
 
 	ts := httptest.NewServer(srv.Handler)
 	defer ts.Close()
@@ -27,6 +27,8 @@ func TestRoutes_Registered(t *testing.T) {
 		{http.MethodGet, "/urls", "", http.StatusOK},
 		{http.MethodGet, "/urls/999", "", http.StatusNotFound},
 		{http.MethodGet, "/audio/999", "", http.StatusNotFound}, // url not in store → 404
+		{http.MethodPatch, "/urls/1", `{"title":"T"}`, http.StatusNotFound},  // id 1 not in stub → 404
+		{http.MethodDelete, "/urls/999", "", http.StatusNotFound},
 	}
 
 	for _, rt := range routes {
@@ -37,6 +39,9 @@ func TestRoutes_Registered(t *testing.T) {
 			reqBody = &bytes.Buffer{}
 		}
 		req, _ := http.NewRequest(rt.method, ts.URL+rt.path, reqBody)
+		if rt.method == http.MethodPatch {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("%s %s: %v", rt.method, rt.path, err)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"audiodrive/internal/model"
 
@@ -41,6 +40,8 @@ func (s *Postgres) migrate() error {
 		`ALTER TABLE urls ADD COLUMN IF NOT EXISTS audio_path TEXT NULL`,
 		`ALTER TABLE urls ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0`,
 		`ALTER TABLE urls ADD COLUMN IF NOT EXISTS last_attempted_at TIMESTAMPTZ NULL`,
+		`ALTER TABLE urls ADD COLUMN IF NOT EXISTS title TEXT NULL`,
+		`ALTER TABLE urls ADD COLUMN IF NOT EXISTS description TEXT NULL`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -50,11 +51,11 @@ func (s *Postgres) migrate() error {
 	return nil
 }
 
-const scanCols = `id, raw_url, status, audio_path, attempts, last_attempted_at, created_at`
+const scanCols = `id, raw_url, status, audio_path, title, description, attempts, last_attempted_at, created_at`
 
 func scanURL(row interface{ Scan(...any) error }) (model.URL, error) {
 	var u model.URL
-	err := row.Scan(&u.ID, &u.RawURL, &u.Status, &u.AudioPath, &u.Attempts, &u.LastAttemptedAt, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.RawURL, &u.Status, &u.AudioPath, &u.Title, &u.Description, &u.Attempts, &u.LastAttemptedAt, &u.CreatedAt)
 	return u, err
 }
 
@@ -101,7 +102,7 @@ func (s *Postgres) List(ctx context.Context) ([]model.URL, error) {
 }
 
 func (s *Postgres) UpdateStatus(ctx context.Context, id int64, status string, audioPath *string) (model.URL, error) {
-	q := `UPDATE urls SET status = $2, audio_path = $3 WHERE id = $1 RETURNING ` + scanCols
+	q := `UPDATE urls SET status = $2, audio_path = COALESCE($3, audio_path) WHERE id = $1 RETURNING ` + scanCols
 	row := s.db.QueryRowContext(ctx, q, id, status, audioPath)
 	out, err := scanURL(row)
 	if err != nil {
@@ -113,64 +114,30 @@ func (s *Postgres) UpdateStatus(ctx context.Context, id int64, status string, au
 	return out, nil
 }
 
-func (s *Postgres) ListByStatus(ctx context.Context, status string) ([]model.URL, error) {
-	q := `SELECT ` + scanCols + ` FROM urls WHERE status = $1 ORDER BY id ASC`
-	rows, err := s.db.QueryContext(ctx, q, status)
+func (s *Postgres) Update(ctx context.Context, id int64, title, description *string) (model.URL, error) {
+	q := `UPDATE urls SET title = COALESCE($2, title), description = COALESCE($3, description) WHERE id = $1 RETURNING ` + scanCols
+	row := s.db.QueryRowContext(ctx, q, id, title, description)
+	out, err := scanURL(row)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []model.URL
-	for rows.Next() {
-		u, err := scanURL(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
-func (s *Postgres) ClaimPending(ctx context.Context) (model.URL, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return model.URL{}, err
-	}
-	defer tx.Rollback()
-
-	selectQ := `SELECT id FROM urls WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`
-	row := tx.QueryRowContext(ctx, selectQ)
-	var id int64
-	if err := row.Scan(&id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.URL{}, ErrNotFound
 		}
 		return model.URL{}, err
 	}
-
-	updateQ := `UPDATE urls SET status = 'processing', attempts = attempts + 1, last_attempted_at = NOW()
-		WHERE id = $1 RETURNING ` + scanCols
-	out, err := scanURL(tx.QueryRowContext(ctx, updateQ, id))
-	if err != nil {
-		return model.URL{}, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return model.URL{}, err
-	}
 	return out, nil
 }
 
-func (s *Postgres) ReapStuck(ctx context.Context, threshold time.Duration, maxAttempts int) (int, error) {
-	q := `UPDATE urls
-		SET status = CASE WHEN attempts >= $2 THEN 'failed' ELSE 'pending' END
-		WHERE status = 'processing'
-		  AND last_attempted_at < NOW() - make_interval(secs => $1)`
-	res, err := s.db.ExecContext(ctx, q, threshold.Seconds(), maxAttempts)
+func (s *Postgres) Delete(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM urls WHERE id = $1`, id)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	n, err := res.RowsAffected()
-	return int(n), err
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

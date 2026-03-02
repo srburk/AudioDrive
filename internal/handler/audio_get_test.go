@@ -32,7 +32,7 @@ func TestGetAudio_OK(t *testing.T) {
 	s.saved = append(s.saved, model.URL{ID: 1, RawURL: "https://example.com", AudioPath: &audioPath})
 
 	audio := &stubAudioStore{content: "mp3data", mime: "audio/mpeg"}
-	h := handler.New(s, audio)
+	h := handler.New(s, audio, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/audio/1", nil)
 	req.SetPathValue("id", "1")
@@ -51,7 +51,7 @@ func TestGetAudio_OK(t *testing.T) {
 }
 
 func TestGetAudio_URLNotFound(t *testing.T) {
-	h := handler.New(newStub(), &stubAudioStore{})
+	h := handler.New(newStub(), &stubAudioStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/audio/999", nil)
 	req.SetPathValue("id", "999")
@@ -67,7 +67,7 @@ func TestGetAudio_NoAudioPath(t *testing.T) {
 	s := newStub()
 	s.saved = append(s.saved, model.URL{ID: 2, RawURL: "https://example.com", AudioPath: nil})
 
-	h := handler.New(s, &stubAudioStore{})
+	h := handler.New(s, &stubAudioStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/audio/2", nil)
 	req.SetPathValue("id", "2")
@@ -84,7 +84,7 @@ func TestGetAudio_FileNotFound(t *testing.T) {
 	s := newStub()
 	s.saved = append(s.saved, model.URL{ID: 1, RawURL: "https://example.com", AudioPath: &audioPath})
 
-	h := handler.New(s, &stubAudioStore{notFound: true})
+	h := handler.New(s, &stubAudioStore{notFound: true}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/audio/1", nil)
 	req.SetPathValue("id", "1")
@@ -97,7 +97,7 @@ func TestGetAudio_FileNotFound(t *testing.T) {
 }
 
 func TestGetAudio_BadID(t *testing.T) {
-	h := handler.New(newStub(), &stubAudioStore{})
+	h := handler.New(newStub(), &stubAudioStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/audio/abc", nil)
 	req.SetPathValue("id", "abc")

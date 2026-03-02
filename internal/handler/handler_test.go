@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,22 +61,30 @@ func (s *stubStore) UpdateStatus(_ context.Context, id int64, status string, aud
 	return model.URL{}, store.ErrNotFound
 }
 
-func (s *stubStore) ListByStatus(_ context.Context, status string) ([]model.URL, error) {
-	var out []model.URL
-	for _, u := range s.saved {
-		if u.Status == status {
-			out = append(out, u)
+func (s *stubStore) Update(_ context.Context, id int64, title, description *string) (model.URL, error) {
+	for i, u := range s.saved {
+		if u.ID != id {
+			continue
 		}
+		if title != nil {
+			s.saved[i].Title = title
+		}
+		if description != nil {
+			s.saved[i].Description = description
+		}
+		return s.saved[i], nil
 	}
-	return out, nil
-}
-
-func (s *stubStore) ClaimPending(_ context.Context) (model.URL, error) {
 	return model.URL{}, store.ErrNotFound
 }
 
-func (s *stubStore) ReapStuck(_ context.Context, _ time.Duration, _ int) (int, error) {
-	return 0, nil
+func (s *stubStore) Delete(_ context.Context, id int64) error {
+	for i, u := range s.saved {
+		if u.ID == id {
+			s.saved = append(s.saved[:i], s.saved[i+1:]...)
+			return nil
+		}
+	}
+	return store.ErrNotFound
 }
 
 // helpers
@@ -94,7 +106,7 @@ func getURL(h *handler.Handler, path string, req *http.Request) *httptest.Respon
 // --- POST /urls ---
 
 func TestCreateURL_Created(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	rr := postURL(h, `{"url":"https://example.com"}`)
 
 	if rr.Code != http.StatusCreated {
@@ -113,7 +125,7 @@ func TestCreateURL_Created(t *testing.T) {
 }
 
 func TestCreateURL_InvalidJSON(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	rr := postURL(h, `not json`)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rr.Code)
@@ -121,7 +133,7 @@ func TestCreateURL_InvalidJSON(t *testing.T) {
 }
 
 func TestCreateURL_InvalidURL(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	rr := postURL(h, `{"url":"not-a-url"}`)
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rr.Code)
@@ -132,7 +144,7 @@ func TestCreateURL_InvalidURL(t *testing.T) {
 
 func TestGetURL_OK(t *testing.T) {
 	s := newStub()
-	h := handler.New(s, nil)
+	h := handler.New(s, nil, nil)
 	postURL(h, `{"url":"https://example.com"}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/urls/1", nil)
@@ -150,7 +162,7 @@ func TestGetURL_OK(t *testing.T) {
 }
 
 func TestGetURL_NotFound(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls/999", nil)
 	req.SetPathValue("id", "999")
 	rr := getURL(h, "/urls/999", req)
@@ -160,7 +172,7 @@ func TestGetURL_NotFound(t *testing.T) {
 }
 
 func TestGetURL_BadID(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls/abc", nil)
 	req.SetPathValue("id", "abc")
 	rr := getURL(h, "/urls/abc", req)
@@ -172,7 +184,7 @@ func TestGetURL_BadID(t *testing.T) {
 // --- GET /urls ---
 
 func TestListURLs_Empty(t *testing.T) {
-	h := handler.New(newStub(), nil)
+	h := handler.New(newStub(), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/urls", nil)
 	rr := httptest.NewRecorder()
 	h.ListURLs(rr, req)
@@ -192,7 +204,7 @@ func TestListURLs_Empty(t *testing.T) {
 
 func TestListURLs_NonEmpty(t *testing.T) {
 	s := newStub()
-	h := handler.New(s, nil)
+	h := handler.New(s, nil, nil)
 	postURL(h, `{"url":"https://a.com"}`)
 	postURL(h, `{"url":"https://b.com"}`)
 
@@ -204,5 +216,73 @@ func TestListURLs_NonEmpty(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&got)
 	if len(got) != 2 {
 		t.Errorf("len = %d, want 2", len(got))
+	}
+}
+
+// --- PATCH /urls/{id} ---
+
+func TestPatchURL_UpdatesTitle(t *testing.T) {
+	s := store.NewInMemory()
+	saved, _ := s.Save(context.Background(), model.URL{RawURL: "https://a.com"})
+	h := handler.New(s, nil, nil)
+
+	body := fmt.Sprintf(`{"title":"New Title"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/urls/"+strconv.FormatInt(saved.ID, 10), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", strconv.FormatInt(saved.ID, 10))
+	rr := httptest.NewRecorder()
+	h.PatchURL(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	var got model.URL
+	json.NewDecoder(rr.Body).Decode(&got)
+	if got.Title == nil || *got.Title != "New Title" {
+		t.Errorf("title = %v", got.Title)
+	}
+}
+
+func TestPatchURL_NotFound(t *testing.T) {
+	h := handler.New(newStub(), nil, nil)
+	req := httptest.NewRequest(http.MethodPatch, "/urls/999", strings.NewReader(`{"title":"X"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "999")
+	rr := httptest.NewRecorder()
+	h.PatchURL(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+// --- DELETE /urls/{id} ---
+
+func TestDeleteURL_NoContent(t *testing.T) {
+	s := store.NewInMemory()
+	saved, _ := s.Save(context.Background(), model.URL{RawURL: "https://a.com"})
+	h := handler.New(s, nil, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/urls/"+strconv.FormatInt(saved.ID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(saved.ID, 10))
+	rr := httptest.NewRecorder()
+	h.DeleteURL(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rr.Code)
+	}
+	_, err := s.GetByID(context.Background(), saved.ID)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Error("row should be gone")
+	}
+}
+
+func TestDeleteURL_NotFound(t *testing.T) {
+	h := handler.New(newStub(), nil, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/urls/999", nil)
+	req.SetPathValue("id", "999")
+	rr := httptest.NewRecorder()
+	h.DeleteURL(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
 	}
 }

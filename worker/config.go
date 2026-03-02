@@ -9,40 +9,32 @@ import (
 
 // Config holds all configuration for the worker.
 type Config struct {
-	DatabaseURL    string
-	PollInterval   time.Duration
-	Concurrency    int
-	MaxAttempts    int
-	StuckThreshold time.Duration
-	ReaperInterval time.Duration
-	FetchTimeout   time.Duration
-	TTSEndpoint    string
-	TTSAPIKey      string
-	TTSModel       string
-	TTSVoice       string
-	TTSFormat      string
-	TTSMaxChars    int
-	AudioDir       string
+	DatabaseURL  string
+	Concurrency  int
+	FetchTimeout time.Duration
+	TTSEndpoint  string
+	TTSAPIKey    string
+	TTSModel     string
+	TTSVoice     string
+	TTSFormat    string
+	TTSMaxChars  int
+	AudioDir     string
 }
 
 // FromEnv builds a Config from environment variables, applying defaults and
 // fatally logging on missing required values.
 func FromEnv() Config {
 	cfg := Config{
-		DatabaseURL:    requireEnv("DATABASE_URL"),
-		TTSEndpoint:    requireEnv("TTS_ENDPOINT"),
-		TTSAPIKey:      requireEnv("TTS_API_KEY"),
-		AudioDir:       requireEnv("AUDIO_DIR"),
-		PollInterval:   parseDuration("POLL_INTERVAL", 2*time.Second),
-		Concurrency:    parseInt("CONCURRENCY", 1),
-		MaxAttempts:    parseInt("MAX_ATTEMPTS", 3),
-		StuckThreshold: parseDuration("STUCK_THRESHOLD", 5*time.Minute),
-		ReaperInterval: parseDuration("REAPER_INTERVAL", time.Minute),
-		FetchTimeout:   parseDuration("FETCH_TIMEOUT", 30*time.Second),
-		TTSModel:       envOr("TTS_MODEL", "tts-1"),
-		TTSVoice:       envOr("TTS_VOICE", "alloy"),
-		TTSFormat:      envOr("TTS_FORMAT", "mp3"),
-		TTSMaxChars:    parseInt("TTS_MAX_CHARS", 4096),
+		DatabaseURL:  requireEnv("DATABASE_URL"),
+		TTSEndpoint:  requireEnv("TTS_ENDPOINT"),
+		TTSAPIKey:    requireEnv("TTS_API_KEY"),
+		AudioDir:     requireEnv("AUDIO_DIR"),
+		Concurrency:  parseInt("CONCURRENCY", 1),
+		FetchTimeout: parseDuration("FETCH_TIMEOUT", 30*time.Second),
+		TTSModel:     envOr("TTS_MODEL", "tts-1"),
+		TTSVoice:     envOr("TTS_VOICE", "alloy"),
+		TTSFormat:    envOr("TTS_FORMAT", "mp3"),
+		TTSMaxChars:  parseInt("TTS_MAX_CHARS", 4096),
 	}
 	return cfg
 }

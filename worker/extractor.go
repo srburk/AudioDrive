@@ -113,3 +113,64 @@ func isNoiseByAttr(n *html.Node) bool {
 	}
 	return false
 }
+
+// ExtractMeta returns title and description from HTML.
+// Title priority:       <title> > og:title > twitter:title
+// Description priority: meta[name=description] > og:description
+func ExtractMeta(htmlBody string) (title, description string) {
+	root, err := html.Parse(strings.NewReader(htmlBody))
+	if err != nil {
+		return
+	}
+	var ogTitle, twitterTitle, ogDesc string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
+			title = strings.TrimSpace(n.FirstChild.Data)
+		}
+		if n.Type == html.ElementNode && n.Data == "meta" {
+			prop    := attrVal(n, "property")
+			name    := attrVal(n, "name")
+			content := attrVal(n, "content")
+			switch {
+			case prop == "og:title":
+				ogTitle = content
+			case prop == "twitter:title":
+				twitterTitle = content
+			case name == "description":
+				description = content
+			case prop == "og:description":
+				ogDesc = content
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(root)
+	if title == "" {
+		title = first(ogTitle, twitterTitle)
+	}
+	if description == "" {
+		description = ogDesc
+	}
+	return
+}
+
+func attrVal(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+func first(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
